@@ -832,6 +832,7 @@ impl Default for ChannelsConfig {
             email: None,
             irc: None,
             lark: None,
+            qq: None,
         }
     }
 }
