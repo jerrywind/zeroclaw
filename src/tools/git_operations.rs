@@ -555,10 +555,9 @@ impl Tool for GitOperationsTool {
 mod tests {
     use super::*;
     use crate::security::SecurityPolicy;
-    use std::path::Path;
     use tempfile::TempDir;
 
-    fn test_tool(dir: &Path) -> GitOperationsTool {
+    fn test_tool(dir: &std::path::Path) -> GitOperationsTool {
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::Supervised,
             ..SecurityPolicy::default()

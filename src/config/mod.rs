@@ -2,12 +2,12 @@ pub mod schema;
 
 #[allow(unused_imports)]
 pub use schema::{
-    AuditConfig, AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config,
+    AuditConfig, AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, CostConfig,
     DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig, GatewayConfig, HeartbeatConfig,
     HttpRequestConfig, IMessageConfig, IdentityConfig, LarkConfig, MatrixConfig, MemoryConfig,
     ModelRouteConfig, ObservabilityConfig, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig,
-    SandboxBackend, SandboxConfig, SecretsConfig, SecurityConfig, SlackConfig, TelegramConfig,
-    TunnelConfig, WebhookConfig,
+    SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig, SlackConfig,
+    TelegramConfig, TunnelConfig, WebhookConfig,
 };
 
 #[cfg(test)]

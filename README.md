@@ -114,6 +114,7 @@ zeroclaw migrate openclaw
 ```
 
 > **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example: `cargo run --release -- status`).
+> **Low-memory boards (e.g., Raspberry Pi 3, 1GB RAM):** run `CARGO_BUILD_JOBS=1 cargo build --release` if the kernel kills rustc during compilation.
 
 ## Architecture
 
@@ -346,6 +347,8 @@ native_webdriver_url = "http://127.0.0.1:9515" # WebDriver endpoint (chromedrive
 
 [composio]
 enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
+# api_key = "cmp_..."          # optional: stored encrypted when [secrets].encrypt = true
+entity_id = "default"         # default user_id for Composio tool calls
 
 [identity]
 format = "openclaw"             # "openclaw" (default, markdown files) or "aieos" (JSON)
@@ -454,6 +457,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 ```bash
 cargo build              # Dev build
 cargo build --release    # Release build (~3.4MB)
+CARGO_BUILD_JOBS=1 cargo build --release    # Low-memory fallback (Raspberry Pi 3, 1GB RAM)
 cargo test               # 1,017 tests
 cargo clippy             # Lint (0 warnings)
 cargo fmt                # Format

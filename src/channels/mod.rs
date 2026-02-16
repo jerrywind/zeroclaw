@@ -3,6 +3,7 @@ pub mod discord;
 pub mod email_channel;
 pub mod imessage;
 pub mod irc;
+pub mod lark;
 pub mod matrix;
 pub mod qq;
 pub mod slack;
@@ -15,6 +16,7 @@ pub use discord::DiscordChannel;
 pub use email_channel::EmailChannel;
 pub use imessage::IMessageChannel;
 pub use irc::IrcChannel;
+pub use lark::LarkChannel;
 pub use matrix::MatrixChannel;
 pub use qq::QQChannel;
 pub use slack::SlackChannel;
@@ -188,7 +190,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             &mut history,
             ctx.tools_registry.as_ref(),
             ctx.observer.as_ref(),
-            ctx.provider_name.as_str(),
+            "channels",
             ctx.model.as_str(),
             ctx.temperature,
         ),
@@ -509,6 +511,7 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
                 ("Email", config.channels_config.email.is_some()),
                 ("IRC", config.channels_config.irc.is_some()),
                 ("QQ", config.channels_config.qq.is_some()),
+                ("Lark", config.channels_config.lark.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -648,6 +651,19 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
         ));
     }
 
+    if let Some(ref lk) = config.channels_config.lark {
+        channels.push((
+            "Lark",
+            Arc::new(LarkChannel::new(
+                lk.app_id.clone(),
+                lk.app_secret.clone(),
+                lk.verification_token.clone().unwrap_or_default(),
+                9898,
+                lk.allowed_users.clone(),
+            )),
+        ));
+    }
+
     if channels.is_empty() {
         println!("No real-time channels configured. Run `zeroclaw onboard` first.");
         return Ok(());
@@ -695,7 +711,8 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let provider_name = config
         .default_provider
         .clone()
-        .unwrap_or_else(|| "openrouter".to_string());
+        .unwrap_or_else(|| "openrouter".into());
+
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider(
         provider_name.as_str(),
         config.api_key.as_deref(),
@@ -728,21 +745,26 @@ pub async fn start_channels(config: Config) -> Result<()> {
         config.api_key.as_deref(),
     )?);
 
-    let composio_key = if config.composio.enabled {
-        config.composio.api_key.as_deref()
+    let (composio_key, composio_entity_id) = if config.composio.enabled {
+        (
+            config.composio.api_key.as_deref(),
+            Some(config.composio.entity_id.as_str()),
+        )
     } else {
-        None
+        (None, None)
     };
     let tools_registry = Arc::new(tools::all_tools_with_runtime(
         &security,
         runtime,
         Arc::clone(&mem),
         composio_key,
+        composio_entity_id,
         &config.browser,
         &config.http_request,
         &config.workspace_dir,
         &config.agents,
         config.api_key.as_deref(),
+        &config,
     ));
 
     // Build system prompt from workspace identity files + skills
@@ -786,9 +808,13 @@ pub async fn start_channels(config: Config) -> Result<()> {
     if config.composio.enabled {
         tool_descs.push((
             "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run, 'connect' to OAuth.",
+            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
         ));
     }
+    tool_descs.push((
+        "schedule",
+        "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
+    ));
     if !config.agents.is_empty() {
         tool_descs.push((
             "delegate",
@@ -889,6 +915,15 @@ pub async fn start_channels(config: Config) -> Result<()> {
             qq.app_id.clone(),
             qq.app_secret.clone(),
             qq.sandbox,
+        )));
+    }
+    if let Some(ref lk) = config.channels_config.lark {
+        channels.push(Arc::new(LarkChannel::new(
+            lk.app_id.clone(),
+            lk.app_secret.clone(),
+            lk.verification_token.clone().unwrap_or_default(),
+            9898,
+            lk.allowed_users.clone(),
         )));
     }
 

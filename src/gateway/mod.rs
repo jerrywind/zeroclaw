@@ -251,10 +251,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         &config.workspace_dir,
     ));
 
-    let composio_key = if config.composio.enabled {
-        config.composio.api_key.as_deref()
+    let (composio_key, composio_entity_id) = if config.composio.enabled {
+        (
+            config.composio.api_key.as_deref(),
+            Some(config.composio.entity_id.as_str()),
+        )
     } else {
-        None
+        (None, None)
     };
 
     let tools_registry = Arc::new(tools::all_tools_with_runtime(
@@ -262,11 +265,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         runtime,
         Arc::clone(&mem),
         composio_key,
+        composio_entity_id,
         &config.browser,
         &config.http_request,
         &config.workspace_dir,
         &config.agents,
         config.api_key.as_deref(),
+        &config,
     ));
     let skills = crate::skills::load_skills(&config.workspace_dir);
     let tool_descs: Vec<(&str, &str)> = tools_registry
