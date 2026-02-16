@@ -815,6 +815,7 @@ pub struct ChannelsConfig {
     pub email: Option<crate::channels::email_channel::EmailConfig>,
     pub irc: Option<IrcConfig>,
     pub lark: Option<LarkConfig>,
+    pub qq: Option<QQConfig>,
 }
 
 impl Default for ChannelsConfig {
@@ -951,6 +952,12 @@ pub struct LarkConfig {
     pub use_feishu: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QQConfig {
+    pub app_id: String,
+    pub app_secret: String,
+    pub sandbox: bool,
+}
 // ── Security Config ─────────────────────────────────────────────────
 
 /// Security configuration for sandboxing, resource limits, and audit logging
@@ -1495,6 +1502,7 @@ mod tests {
                 email: None,
                 irc: None,
                 lark: None,
+                qq: None,
             },
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
@@ -1752,6 +1760,7 @@ default_temperature = 0.7
             email: None,
             irc: None,
             lark: None,
+            qq: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();

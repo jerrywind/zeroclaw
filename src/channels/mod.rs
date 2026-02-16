@@ -4,6 +4,7 @@ pub mod email_channel;
 pub mod imessage;
 pub mod irc;
 pub mod matrix;
+pub mod qq;
 pub mod slack;
 pub mod telegram;
 pub mod traits;
@@ -15,6 +16,7 @@ pub use email_channel::EmailChannel;
 pub use imessage::IMessageChannel;
 pub use irc::IrcChannel;
 pub use matrix::MatrixChannel;
+pub use qq::QQChannel;
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
 pub use traits::Channel;
@@ -504,6 +506,7 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
                 ("Email", config.channels_config.email.is_some()),
                 ("IRC", config.channels_config.irc.is_some()),
+                ("QQ", config.channels_config.qq.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -629,6 +632,16 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 irc.nickserv_password.clone(),
                 irc.sasl_password.clone(),
                 irc.verify_tls.unwrap_or(true),
+            )),
+        ));
+    }
+    if let Some(ref qq) = config.channels_config.qq {
+        channels.push((
+            "QQ",
+            Arc::new(QQChannel::new(
+                qq.app_id.clone(),
+                qq.app_secret.clone(),
+                qq.sandbox,
             )),
         ));
     }
@@ -861,6 +874,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
             irc.nickserv_password.clone(),
             irc.sasl_password.clone(),
             irc.verify_tls.unwrap_or(true),
+        )));
+    }
+
+    if let Some(ref qq) = config.channels_config.qq {
+        channels.push(Arc::new(QQChannel::new(
+            qq.app_id.clone(),
+            qq.app_secret.clone(),
+            qq.sandbox,
         )));
     }
 

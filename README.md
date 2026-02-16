@@ -236,6 +236,11 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    phone_number_id = "123456789012345"
    verify_token = "my-secret-verify-token"
    allowed_numbers = ["+1234567890"]  # E.164 format, or ["*"] for all
+   
+   [channels_config.qq]
+   app_id = "123456"
+   app_secret = "abcdef..."
+   sandbox = true
    ```
 
 4. **Start the gateway with a tunnel:**
@@ -251,6 +256,32 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    - Subscribe to `messages` field
 
 6. **Test:** Send a message to your WhatsApp Business number — ZeroClaw will respond via the LLM.
+### QQ Bot Setup
+
+ZeroClaw supports QQ channels via the official `qqbot` API (WebSocket + Open API).
+
+1. **Register Developer Account:**
+   - Go to [QQ Open Platform](https://q.qq.com/)
+   - Create a robot application to get `app_id` and `app_secret`.
+   - Ensure you have configured the bot in Sandbox mode for testing.
+
+2. **Configure ZeroClaw:**
+   ```toml
+   [channels_config.qq]
+   app_id = "YOUR_APP_ID"
+   app_secret = "YOUR_APP_SECRET"
+   sandbox = true  # Set to false for production
+   ```
+
+3. **Start ZeroClaw:**
+   ```bash
+   zeroclaw start
+   ```
+   ZeroClaw will automatically fetch and refresh access tokens and connect to the QQ Gateway.
+
+4. **Test:**
+    - In Sandbox mode, ensure your test account is added to the allowlist in the QQ Developer Portal.
+    - @Mention the bot in a testing guild or send a DM.
 
 ## Configuration
 
