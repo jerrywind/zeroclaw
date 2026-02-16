@@ -22,7 +22,7 @@ pub use telegram::TelegramChannel;
 pub use traits::Channel;
 pub use whatsapp::WhatsAppChannel;
 
-use crate::agent::loop_::{agent_turn, build_tool_instructions};
+use crate::agent::loop_::{build_tool_instructions, run_tool_call_loop};
 use crate::config::Config;
 use crate::identity;
 use crate::memory::{self, Memory};
@@ -52,6 +52,7 @@ const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
 struct ChannelRuntimeContext {
     channels_by_name: Arc<HashMap<String, Arc<dyn Channel>>>,
     provider: Arc<dyn Provider>,
+    provider_name: Arc<String>,
     memory: Arc<dyn Memory>,
     tools_registry: Arc<Vec<Box<dyn Tool>>>,
     observer: Arc<dyn Observer>,
@@ -182,11 +183,12 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     let llm_result = tokio::time::timeout(
         Duration::from_secs(CHANNEL_MESSAGE_TIMEOUT_SECS),
-        agent_turn(
+        run_tool_call_loop(
             ctx.provider.as_ref(),
             &mut history,
             ctx.tools_registry.as_ref(),
             ctx.observer.as_ref(),
+            ctx.provider_name.as_str(),
             ctx.model.as_str(),
             ctx.temperature,
         ),
@@ -690,8 +692,12 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
 /// Start all configured channels and route messages to the agent
 #[allow(clippy::too_many_lines)]
 pub async fn start_channels(config: Config) -> Result<()> {
+    let provider_name = config
+        .default_provider
+        .clone()
+        .unwrap_or_else(|| "openrouter".to_string());
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider(
-        config.default_provider.as_deref().unwrap_or("openrouter"),
+        provider_name.as_str(),
         config.api_key.as_deref(),
         &config.reliability,
     )?);
@@ -734,6 +740,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         composio_key,
         &config.browser,
         &config.http_request,
+        &config.workspace_dir,
         &config.agents,
         config.api_key.as_deref(),
     ));
@@ -948,6 +955,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let runtime_ctx = Arc::new(ChannelRuntimeContext {
         channels_by_name,
         provider: Arc::clone(&provider),
+        provider_name: Arc::new(provider_name),
         memory: Arc::clone(&mem),
         tools_registry: Arc::clone(&tools_registry),
         observer,
@@ -972,7 +980,7 @@ mod tests {
     use super::*;
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
-    use crate::providers::{ChatMessage, Provider};
+    use crate::providers::{ChatMessage, ChatResponse, Provider, ToolCall};
     use crate::tools::{Tool, ToolResult};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1039,27 +1047,23 @@ mod tests {
             message: &str,
             _model: &str,
             _temperature: f64,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<ChatResponse> {
             tokio::time::sleep(self.delay).await;
-            Ok(format!("echo: {message}"))
+            Ok(ChatResponse::with_text(format!("echo: {message}")))
         }
     }
 
     struct ToolCallingProvider;
 
-    fn tool_call_payload() -> String {
-        serde_json::json!({
-            "content": "",
-            "tool_calls": [{
-                "id": "call_1",
-                "type": "function",
-                "function": {
-                    "name": "mock_price",
-                    "arguments": "{\"symbol\":\"BTC\"}"
-                }
-            }]
-        })
-        .to_string()
+    fn tool_call_payload() -> ChatResponse {
+        ChatResponse {
+            text: Some(String::new()),
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "mock_price".into(),
+                arguments: r#"{"symbol":"BTC"}"#.into(),
+            }],
+        }
     }
 
     #[async_trait::async_trait]
@@ -1070,7 +1074,7 @@ mod tests {
             _message: &str,
             _model: &str,
             _temperature: f64,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<ChatResponse> {
             Ok(tool_call_payload())
         }
 
@@ -1079,12 +1083,14 @@ mod tests {
             messages: &[ChatMessage],
             _model: &str,
             _temperature: f64,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<ChatResponse> {
             let has_tool_results = messages
                 .iter()
                 .any(|msg| msg.role == "user" && msg.content.contains("[Tool results]"));
             if has_tool_results {
-                Ok("BTC is currently around $65,000 based on latest tool output.".to_string())
+                Ok(ChatResponse::with_text(
+                    "BTC is currently around $65,000 based on latest tool output.",
+                ))
             } else {
                 Ok(tool_call_payload())
             }
@@ -1142,6 +1148,7 @@ mod tests {
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
+            provider_name: Arc::new("test-provider".to_string()),
             memory: Arc::new(NoopMemory),
             tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
             observer: Arc::new(NoopObserver),
@@ -1232,6 +1239,7 @@ mod tests {
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(250),
             }),
+            provider_name: Arc::new("test-provider".to_string()),
             memory: Arc::new(NoopMemory),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),

@@ -26,7 +26,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # Config
 directories = "5.0"
-toml = "0.8"
+toml = "1.0"
 shellexpand = "3.1"
 
 # Logging - minimal
@@ -34,7 +34,7 @@ tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 
 # Observability - Prometheus metrics
-prometheus = { version = "0.13", default-features = false }
+prometheus = { version = "0.14", default-features = false }
 
 # Base64 encoding (screenshots, image data)
 base64 = "0.22"
@@ -64,12 +64,12 @@ landlock = { version = "0.4", optional = true }
 async-trait = "0.1"
 
 # Memory / persistence
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 cron = "0.12"
 
 # Interactive CLI prompts
-dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 console = "0.15"
 
 # Hardware discovery (device path globbing)
@@ -87,7 +87,7 @@ tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
 
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
-axum = { version = "0.7", default-features = false, features = ["http1", "json", "tokio", "query"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
