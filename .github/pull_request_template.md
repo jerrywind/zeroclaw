@@ -13,7 +13,7 @@ Describe this PR in 2-5 bullets:
 - Size label (`size: XS|S|M|L|XL`, auto-managed/read-only):
 - Scope labels (`core|agent|channel|config|cron|daemon|doctor|gateway|health|heartbeat|integration|memory|observability|onboard|provider|runtime|security|service|skillforge|skills|tool|tunnel|docs|dependencies|ci|tests|scripts|dev`, comma-separated):
 - Module labels (`<module>:<component>`, for example `channel:telegram`, `provider:kimi`, `tool:shell`):
-- Contributor tier label (`experienced contributor|principal contributor|distinguished contributor`, auto-managed/read-only; author merged PRs >=10/20/50):
+- Contributor tier label (`trusted contributor|experienced contributor|principal contributor|distinguished contributor`, auto-managed/read-only; author merged PRs >=5/10/20/50):
 - If any auto-label is incorrect, note requested correction:
 
 ## Change Metadata
@@ -27,6 +27,14 @@ Describe this PR in 2-5 bullets:
 - Related #
 - Depends on # (if stacked)
 - Supersedes # (if replacing older PR)
+
+## Supersede Attribution (required when `Supersedes #` is used)
+
+- Superseded PRs + authors (`#<pr> by @<author>`, one per line):
+- Integrated scope by source PR (what was materially carried forward):
+- `Co-authored-by` trailers added for materially incorporated contributors? (`Yes/No`)
+- If `No`, explain why (for example: inspiration-only, no direct code/design carry-over):
+- Trailer format check (separate lines, no escaped `\n`): (`Pass/Fail`)
 
 ## Validation Evidence (required)
 

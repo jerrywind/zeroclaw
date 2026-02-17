@@ -1,10 +1,13 @@
-use crate::config::schema::{IrcConfig, WhatsAppConfig};
+use crate::config::schema::{DingTalkConfig, IrcConfig, WhatsAppConfig};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
     RuntimeConfig, SecretsConfig, SlackConfig, TelegramConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
+use crate::memory::{
+    default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
+};
 use anyhow::{Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
@@ -110,7 +113,8 @@ pub fn run_wizard() -> Result<Config> {
         autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
-        scheduler: crate::config::SchedulerConfig::default(),
+        scheduler: crate::config::schema::SchedulerConfig::default(),
+        agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
         channels_config,
@@ -123,9 +127,9 @@ pub fn run_wizard() -> Result<Config> {
         http_request: crate::config::HttpRequestConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
-        hardware: hardware_config,
+        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
-        security: crate::config::SecurityConfig::default(),
+        hardware: hardware_config,
     };
 
     println!(
@@ -151,7 +155,8 @@ pub fn run_wizard() -> Result<Config> {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -207,7 +212,8 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -237,8 +243,44 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite`.
+/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
 /// Use `zeroclaw onboard --interactive` for the full wizard.
+fn backend_key_from_choice(choice: usize) -> &'static str {
+    selectable_memory_backends()
+        .get(choice)
+        .map_or(default_memory_backend_key(), |backend| backend.key)
+}
+
+fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
+    let profile = memory_backend_profile(backend);
+
+    MemoryConfig {
+        backend: backend.to_string(),
+        auto_save: profile.auto_save_default,
+        hygiene_enabled: profile.uses_sqlite_hygiene,
+        archive_after_days: if profile.uses_sqlite_hygiene { 7 } else { 0 },
+        purge_after_days: if profile.uses_sqlite_hygiene { 30 } else { 0 },
+        conversation_retention_days: 30,
+        embedding_provider: "none".to_string(),
+        embedding_model: "text-embedding-3-small".to_string(),
+        embedding_dimensions: 1536,
+        vector_weight: 0.7,
+        keyword_weight: 0.3,
+        embedding_cache_size: if profile.uses_sqlite_hygiene {
+            10000
+        } else {
+            0
+        },
+        chunk_max_tokens: 512,
+        response_cache_enabled: false,
+        response_cache_ttl_minutes: 60,
+        response_cache_max_entries: 5_000,
+        snapshot_enabled: false,
+        snapshot_on_hygiene: false,
+        auto_hydrate: true,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn run_quick_setup(
     api_key: Option<&str>,
@@ -265,36 +307,12 @@ pub fn run_quick_setup(
 
     let provider_name = provider.unwrap_or("openrouter").to_string();
     let model = default_model_for_provider(&provider_name);
-    let memory_backend_name = memory_backend.unwrap_or("sqlite").to_string();
+    let memory_backend_name = memory_backend
+        .unwrap_or(default_memory_backend_key())
+        .to_string();
 
     // Create memory config based on backend choice
-    let memory_config = MemoryConfig {
-        backend: memory_backend_name.clone(),
-        auto_save: memory_backend_name != "none",
-        hygiene_enabled: memory_backend_name == "sqlite",
-        archive_after_days: if memory_backend_name == "sqlite" {
-            7
-        } else {
-            0
-        },
-        purge_after_days: if memory_backend_name == "sqlite" {
-            30
-        } else {
-            0
-        },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if memory_backend_name == "sqlite" {
-            10000
-        } else {
-            0
-        },
-        chunk_max_tokens: 512,
-    };
+    let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
     let config = Config {
         workspace_dir: workspace_dir.clone(),
@@ -307,7 +325,8 @@ pub fn run_quick_setup(
         autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
-        scheduler: crate::config::SchedulerConfig::default(),
+        scheduler: crate::config::schema::SchedulerConfig::default(),
+        agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
         channels_config: ChannelsConfig::default(),
@@ -320,9 +339,9 @@ pub fn run_quick_setup(
         http_request: crate::config::HttpRequestConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
-        hardware: HardwareConfig::default(),
+        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
-        security: crate::config::SecurityConfig::default(),
+        hardware: crate::config::HardwareConfig::default(),
     };
 
     config.save()?;
@@ -1257,7 +1276,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
     // ── Tier selection ──
     let tiers = vec![
         "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
-        "⚡ Fast inference (Groq, Fireworks, Together AI)",
+        "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
         "🏠 Local / private (Ollama — no API key needed)",
@@ -1292,6 +1311,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
             ("groq", "Groq — ultra-fast LPU inference"),
             ("fireworks", "Fireworks AI — fast open-source inference"),
             ("together-ai", "Together AI — open-source model hosting"),
+            ("nvidia", "NVIDIA NIM — DeepSeek, Llama, & more"),
         ],
         2 => vec![
             ("vercel", "Vercel AI Gateway"),
@@ -1433,6 +1453,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
             "minimax" => "https://www.minimaxi.com/user-center/basic-information",
             "vercel" => "https://vercel.com/account/tokens",
             "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
+            "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
             "bedrock" => "https://console.aws.amazon.com/iam",
             "gemini" => "https://aistudio.google.com/app/apikey",
             _ => "",
@@ -1553,6 +1574,12 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
                 "Llama 3.1 8B Turbo",
             ),
             ("mistralai/Mixtral-8x22B-Instruct-v0.1", "Mixtral 8x22B"),
+        ],
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec![
+            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1 (reasoning)"),
+            ("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
+            ("mistralai/Mistral-7B-Instruct-v0.3", "Mistral 7B Instruct"),
+            ("meta/llama-3.1-405b-instruct", "Llama 3.1 405B Instruct"),
         ],
         "cohere" => vec![
             ("command-r-plus", "Command R+ (flagship)"),
@@ -1777,6 +1804,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "cloudflare" | "cloudflare-ai" => "CLOUDFLARE_API_KEY",
         "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
         "gemini" => "GEMINI_API_KEY",
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         _ => "API_KEY",
     }
 }
@@ -1990,7 +2018,7 @@ fn setup_hardware() -> Result<HardwareConfig> {
         hw_config.baud_rate = match baud_idx {
             1 => 9600,
             2 => 57600,
-            3 => 230400,
+            3 => 230_400,
             4 => {
                 let custom: String = Input::new()
                     .with_prompt("  Custom baud rate")
@@ -2164,11 +2192,10 @@ fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("You can always change this later in config.toml.");
     println!();
 
-    let options = vec![
-        "SQLite with Vector Search (recommended) — fast, hybrid search, embeddings",
-        "Markdown Files — simple, human-readable, no dependencies",
-        "None — disable persistent memory",
-    ];
+    let options: Vec<&str> = selectable_memory_backends()
+        .iter()
+        .map(|backend| backend.label)
+        .collect();
 
     let choice = Select::new()
         .with_prompt("  Select memory backend")
@@ -2176,20 +2203,16 @@ fn setup_memory() -> Result<MemoryConfig> {
         .default(0)
         .interact()?;
 
-    let backend = match choice {
-        1 => "markdown",
-        2 => "none",
-        _ => "sqlite", // 0 and any unexpected value defaults to sqlite
-    };
+    let backend = backend_key_from_choice(choice);
+    let profile = memory_backend_profile(backend);
 
-    let auto_save = if backend == "none" {
+    let auto_save = if !profile.auto_save_default {
         false
     } else {
-        let save = Confirm::new()
+        Confirm::new()
             .with_prompt("  Auto-save conversations to memory?")
             .default(true)
-            .interact()?;
-        save
+            .interact()?
     };
 
     println!(
@@ -2199,21 +2222,9 @@ fn setup_memory() -> Result<MemoryConfig> {
         if auto_save { "on" } else { "off" }
     );
 
-    Ok(MemoryConfig {
-        backend: backend.to_string(),
-        auto_save,
-        hygiene_enabled: backend == "sqlite", // Only enable hygiene for SQLite
-        archive_after_days: if backend == "sqlite" { 7 } else { 0 },
-        purge_after_days: if backend == "sqlite" { 30 } else { 0 },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if backend == "sqlite" { 10000 } else { 0 },
-        chunk_max_tokens: 512,
-    })
+    let mut config = memory_config_defaults_for_backend(backend);
+    config.auto_save = auto_save;
+    Ok(config)
 }
 
 // ── Step 3: Channels ────────────────────────────────────────────
@@ -2236,7 +2247,11 @@ fn setup_channels() -> Result<ChannelsConfig> {
         email: None,
         irc: None,
         lark: None,
+<<<<<<< HEAD
         qq: None,
+=======
+        dingtalk: None,
+>>>>>>> 2cb02ff946b10a0866b70ccc42ef51ad09ec8fc3
     };
 
     loop {
@@ -2305,13 +2320,21 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     "— HTTP endpoint"
                 }
             ),
+            format!(
+                "DingTalk   {}",
+                if config.dingtalk.is_some() {
+                    "✅ connected"
+                } else {
+                    "— 钉钉 Stream Mode"
+                }
+            ),
             "Done — finish setup".to_string(),
         ];
 
         let choice = Select::new()
             .with_prompt("  Connect a channel (or Done to continue)")
             .items(&options)
-            .default(8)
+            .default(9)
             .interact()?;
 
         match choice {
@@ -2337,18 +2360,27 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — reqwest::blocking Response
+                // must be used and dropped there to avoid "Cannot drop a runtime" panic)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let url = format!("https://api.telegram.org/bot{token}/getMe");
-                match client.get(&url).send() {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let bot_name = data
-                            .get("result")
-                            .and_then(|r| r.get("username"))
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let url = format!("https://api.telegram.org/bot{token_clone}/getMe");
+                    let resp = client.get(&url).send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let bot_name = data
+                        .get("result")
+                        .and_then(|r| r.get("username"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, bot_name))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, bot_name))) => {
                         println!(
                             "\r  {} Connected as @{bot_name}        ",
                             style("✅").green().bold()
@@ -2421,20 +2453,27 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get("https://discord.com/api/v10/users/@me")
-                    .header("Authorization", format!("Bot {token}"))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let bot_name = data
-                            .get("username")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get("https://discord.com/api/v10/users/@me")
+                        .header("Authorization", format!("Bot {token_clone}"))
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let bot_name = data
+                        .get("username")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, bot_name))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, bot_name))) => {
                         println!(
                             "\r  {} Connected as {bot_name}        ",
                             style("✅").green().bold()
@@ -2513,37 +2552,44 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get("https://slack.com/api/auth.test")
-                    .bearer_auth(&token)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let ok = data
-                            .get("ok")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false);
-                        let team = data
-                            .get("team")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
-                        if ok {
-                            println!(
-                                "\r  {} Connected to workspace: {team}        ",
-                                style("✅").green().bold()
-                            );
-                        } else {
-                            let err = data
-                                .get("error")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("unknown error");
-                            println!("\r  {} Slack error: {err}", style("❌").red().bold());
-                            continue;
-                        }
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get("https://slack.com/api/auth.test")
+                        .bearer_auth(&token_clone)
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let api_ok = data
+                        .get("ok")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let team = data
+                        .get("team")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let err = data
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown error")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, api_ok, team, err))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, true, team, _))) => {
+                        println!(
+                            "\r  {} Connected to workspace: {team}        ",
+                            style("✅").green().bold()
+                        );
+                    }
+                    Ok(Ok((true, false, _, err))) => {
+                        println!("\r  {} Slack error: {err}", style("❌").red().bold());
+                        continue;
                     }
                     _ => {
                         println!(
@@ -2682,21 +2728,29 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 let hs = homeserver.trim_end_matches('/');
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get(format!("{hs}/_matrix/client/v3/account/whoami"))
-                    .header("Authorization", format!("Bearer {access_token}"))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let user_id = data
-                            .get("user_id")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let hs_owned = hs.to_string();
+                let access_token_clone = access_token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get(format!("{hs_owned}/_matrix/client/v3/account/whoami"))
+                        .header("Authorization", format!("Bearer {access_token_clone}"))
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let user_id = data
+                        .get("user_id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, user_id))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, user_id))) => {
                         println!(
                             "\r  {} Connected as {user_id}        ",
                             style("✅").green().bold()
@@ -2770,19 +2824,28 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .default("zeroclaw-whatsapp-verify".into())
                     .interact_text()?;
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let url = format!(
-                    "https://graph.facebook.com/v18.0/{}",
-                    phone_number_id.trim()
-                );
-                match client
-                    .get(&url)
-                    .header("Authorization", format!("Bearer {}", access_token.trim()))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
+                let phone_number_id_clone = phone_number_id.clone();
+                let access_token_clone = access_token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let url = format!(
+                        "https://graph.facebook.com/v18.0/{}",
+                        phone_number_id_clone.trim()
+                    );
+                    let resp = client
+                        .get(&url)
+                        .header(
+                            "Authorization",
+                            format!("Bearer {}", access_token_clone.trim()),
+                        )
+                        .send()?;
+                    Ok::<_, reqwest::Error>(resp.status().is_success())
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok(true)) => {
                         println!(
                             "\r  {} Connected to WhatsApp API        ",
                             style("✅").green().bold()
@@ -2990,6 +3053,76 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     style(&port).cyan()
                 );
             }
+            8 => {
+                // ── DingTalk ──
+                println!();
+                println!(
+                    "  {} {}",
+                    style("DingTalk Setup").white().bold(),
+                    style("— 钉钉 Stream Mode").dim()
+                );
+                print_bullet("1. Go to DingTalk developer console (open.dingtalk.com)");
+                print_bullet("2. Create an app and enable the Stream Mode bot");
+                print_bullet("3. Copy the Client ID (AppKey) and Client Secret (AppSecret)");
+                println!();
+
+                let client_id: String = Input::new()
+                    .with_prompt("  Client ID (AppKey)")
+                    .interact_text()?;
+
+                if client_id.trim().is_empty() {
+                    println!("  {} Skipped", style("→").dim());
+                    continue;
+                }
+
+                let client_secret: String = Input::new()
+                    .with_prompt("  Client Secret (AppSecret)")
+                    .interact_text()?;
+
+                // Test connection
+                print!("  {} Testing connection... ", style("⏳").dim());
+                let client = reqwest::blocking::Client::new();
+                let body = serde_json::json!({
+                    "clientId": client_id,
+                    "clientSecret": client_secret,
+                });
+                match client
+                    .post("https://api.dingtalk.com/v1.0/gateway/connections/open")
+                    .json(&body)
+                    .send()
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!(
+                            "\r  {} DingTalk credentials verified        ",
+                            style("✅").green().bold()
+                        );
+                    }
+                    _ => {
+                        println!(
+                            "\r  {} Connection failed — check your credentials",
+                            style("❌").red().bold()
+                        );
+                        continue;
+                    }
+                }
+
+                let users_str: String = Input::new()
+                    .with_prompt("  Allowed staff IDs (comma-separated, '*' for all)")
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_users: Vec<String> = users_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                config.dingtalk = Some(DingTalkConfig {
+                    client_id,
+                    client_secret,
+                    allowed_users,
+                });
+            }
             _ => break, // Done
         }
         println!();
@@ -3023,6 +3156,9 @@ fn setup_channels() -> Result<ChannelsConfig> {
     }
     if config.webhook.is_some() {
         active.push("Webhook");
+    }
+    if config.dingtalk.is_some() {
+        active.push("DingTalk");
     }
 
     println!(
@@ -3474,7 +3610,8 @@ fn print_summary(config: &Config) {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     println!();
     println!(
@@ -4336,6 +4473,9 @@ mod tests {
         assert_eq!(provider_env_var("google"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("google-gemini"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("gemini"), "GEMINI_API_KEY");
+        assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
+        assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
+        assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias
     }
 
     #[test]
@@ -4344,18 +4484,54 @@ mod tests {
     }
 
     #[test]
-    fn default_model_for_minimax_is_m2_5() {
-        assert_eq!(default_model_for_provider("minimax"), "MiniMax-M2.5");
+    fn backend_key_from_choice_maps_supported_backends() {
+        assert_eq!(backend_key_from_choice(0), "sqlite");
+        assert_eq!(backend_key_from_choice(1), "lucid");
+        assert_eq!(backend_key_from_choice(2), "markdown");
+        assert_eq!(backend_key_from_choice(3), "none");
+        assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
     #[test]
-    fn minimax_onboard_models_include_m2_variants() {
-        let model_names: Vec<&str> = MINIMAX_ONBOARD_MODELS
-            .iter()
-            .map(|(name, _)| *name)
-            .collect();
-        assert_eq!(model_names.first().copied(), Some("MiniMax-M2.5"));
-        assert!(model_names.contains(&"MiniMax-M2.1"));
-        assert!(model_names.contains(&"MiniMax-M2.1-highspeed"));
+    fn memory_backend_profile_marks_lucid_as_optional_sqlite_backed() {
+        let lucid = memory_backend_profile("lucid");
+        assert!(lucid.auto_save_default);
+        assert!(lucid.uses_sqlite_hygiene);
+        assert!(lucid.sqlite_based);
+        assert!(lucid.optional_dependency);
+
+        let markdown = memory_backend_profile("markdown");
+        assert!(markdown.auto_save_default);
+        assert!(!markdown.uses_sqlite_hygiene);
+
+        let none = memory_backend_profile("none");
+        assert!(!none.auto_save_default);
+        assert!(!none.uses_sqlite_hygiene);
+
+        let custom = memory_backend_profile("custom-memory");
+        assert!(custom.auto_save_default);
+        assert!(!custom.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_lucid_enable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("lucid");
+        assert_eq!(config.backend, "lucid");
+        assert!(config.auto_save);
+        assert!(config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 7);
+        assert_eq!(config.purge_after_days, 30);
+        assert_eq!(config.embedding_cache_size, 10000);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_none_disable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("none");
+        assert_eq!(config.backend, "none");
+        assert!(!config.auto_save);
+        assert!(!config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 0);
+        assert_eq!(config.purge_after_days, 0);
+        assert_eq!(config.embedding_cache_size, 0);
     }
 }

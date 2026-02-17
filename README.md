@@ -10,7 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
 </p>
 
@@ -62,13 +63,75 @@ ls -lh target/release/zeroclaw
 /usr/bin/time -l target/release/zeroclaw status
 ```
 
+## Prerequisites
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+#### Required
+
+1. **Visual Studio Build Tools** (provides the MSVC linker and Windows SDK):
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools
+   ```
+   During installation (or via the Visual Studio Installer), select the **"Desktop development with C++"** workload.
+
+2. **Rust toolchain:**
+   ```powershell
+   winget install Rustlang.Rustup
+   ```
+   After installation, open a new terminal and run `rustup default stable` to ensure the stable toolchain is active.
+
+3. **Verify** both are working:
+   ```powershell
+   rustc --version
+   cargo --version
+   ```
+
+#### Optional
+
+- **Docker Desktop** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via `winget install Docker.DockerDesktop`.
+
+</details>
+
+<details>
+<summary><strong>Linux / macOS</strong></summary>
+
+#### Required
+
+1. **Build essentials:**
+   - **Linux (Debian/Ubuntu):** `sudo apt install build-essential pkg-config`
+   - **Linux (Fedora/RHEL):** `sudo dnf groupinstall "Development Tools" && sudo dnf install pkg-config`
+   - **macOS:** Install Xcode Command Line Tools: `xcode-select --install`
+
+2. **Rust toolchain:**
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+   See [rustup.rs](https://rustup.rs) for details.
+
+3. **Verify** both are working:
+   ```bash
+   rustc --version
+   cargo --version
+   ```
+
+#### Optional
+
+- **Docker** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via your package manager or [docker.com](https://docs.docker.com/engine/install/).
+
+> **Low-memory boards (e.g., Raspberry Pi 3, 1GB RAM):** see [Build troubleshooting](#build-troubleshooting-linux-openssl-errors) and use `CARGO_BUILD_JOBS=1 cargo build --release` if the kernel kills rustc during compilation.
+
+</details>
+
+
 ## Quick Start
 
 ```bash
 git clone https://github.com/zeroclaw-labs/zeroclaw.git
 cd zeroclaw
-cargo build --release
-cargo install --path . --force
+cargo build --release --locked
+cargo install --path . --force --locked
 
 # Quick setup (no prompts)
 zeroclaw onboard --api-key sk-... --provider openrouter
@@ -114,7 +177,6 @@ zeroclaw migrate openclaw
 ```
 
 > **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example: `cargo run --release -- status`).
-> **Low-memory boards (e.g., Raspberry Pi 3, 1GB RAM):** run `CARGO_BUILD_JOBS=1 cargo build --release` if the kernel kills rustc during compilation.
 
 ## Architecture
 
@@ -128,7 +190,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 |-----------|-------|------------|--------|
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook | Any messaging API |
-| **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
+| **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Lucid bridge (CLI sync + SQLite fallback), Markdown | Any persistence backend |
 | **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), browser (agent-browser / rust-native), composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
 | **Runtime** | `RuntimeAdapter` | Native, Docker (sandboxed) | WASM (planned; unsupported kinds fail fast) |
@@ -164,11 +226,21 @@ The agent automatically recalls, saves, and manages memory via tools.
 
 ```toml
 [memory]
-backend = "sqlite"          # "sqlite", "markdown", "none"
+backend = "sqlite"          # "sqlite", "lucid", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"
 vector_weight = 0.7
 keyword_weight = 0.3
+
+# backend = "none" uses an explicit no-op memory backend (no persistence)
+
+# Optional for backend = "lucid"
+# ZEROCLAW_LUCID_CMD=/usr/local/bin/lucid   # default: lucid
+# ZEROCLAW_LUCID_BUDGET=200                 # default: 200
+# ZEROCLAW_LUCID_LOCAL_HIT_THRESHOLD=3      # local hit count to skip external recall
+# ZEROCLAW_LUCID_RECALL_TIMEOUT_MS=120      # low-latency budget for lucid context recall
+# ZEROCLAW_LUCID_STORE_TIMEOUT_MS=800        # async sync timeout for lucid store
+# ZEROCLAW_LUCID_FAILURE_COOLDOWN_MS=15000   # cooldown after lucid failure to avoid repeated slow attempts
 ```
 
 ## Security
@@ -295,11 +367,13 @@ default_model = "anthropic/claude-sonnet-4-20250514"
 default_temperature = 0.7
 
 [memory]
-backend = "sqlite"              # "sqlite", "markdown", "none"
+backend = "sqlite"              # "sqlite", "lucid", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"   # "openai", "noop"
 vector_weight = 0.7
 keyword_weight = 0.3
+
+# backend = "none" disables persistent memory via no-op backend
 
 [gateway]
 require_pairing = true          # require pairing code on first connect
@@ -336,14 +410,33 @@ encrypt = true                  # API keys encrypted with local key file
 [browser]
 enabled = false                        # opt-in browser_open + browser tools
 allowed_domains = ["docs.rs"]         # required when browser is enabled
-backend = "agent_browser"             # "agent_browser" (default), "rust_native", "auto"
+backend = "agent_browser"             # "agent_browser" (default), "rust_native", "computer_use", "auto"
 native_headless = true                 # applies when backend uses rust-native
 native_webdriver_url = "http://127.0.0.1:9515" # WebDriver endpoint (chromedriver/selenium)
 # native_chrome_path = "/usr/bin/chromium"  # optional explicit browser binary for driver
 
+[browser.computer_use]
+endpoint = "http://127.0.0.1:8787/v1/actions" # computer-use sidecar HTTP endpoint
+timeout_ms = 15000                    # per-action timeout
+allow_remote_endpoint = false         # secure default: only private/localhost endpoint
+window_allowlist = []                 # optional window title/process allowlist hints
+# api_key = "..."                    # optional bearer token for sidecar
+# max_coordinate_x = 3840             # optional coordinate guardrail
+# max_coordinate_y = 2160             # optional coordinate guardrail
+
 # Rust-native backend build flag:
 # cargo build --release --features browser-native
 # Ensure a WebDriver server is running, e.g. chromedriver --port=9515
+
+# Computer-use sidecar contract (MVP)
+# POST browser.computer_use.endpoint
+# Request: {
+#   "action": "mouse_click",
+#   "params": {"x": 640, "y": 360, "button": "left"},
+#   "policy": {"allowed_domains": [...], "window_allowlist": [...], "max_coordinate_x": 3840, "max_coordinate_y": 2160},
+#   "metadata": {"session_name": "...", "source": "zeroclaw.browser", "version": "..."}
+# }
+# Response: {"success": true, "data": {...}} or {"success": false, "error": "..."}
 
 [composio]
 enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
@@ -355,6 +448,40 @@ format = "openclaw"             # "openclaw" (default, markdown files) or "aieos
 # aieos_path = "identity.json"  # path to AIEOS JSON file (relative to workspace or absolute)
 # aieos_inline = '{"identity":{"names":{"first":"Nova"}}}'  # inline AIEOS JSON
 ```
+
+## Python Companion Package (`zeroclaw-tools`)
+
+For LLM providers with inconsistent native tool calling (e.g., GLM-5/Zhipu), ZeroClaw ships a Python companion package with **LangGraph-based tool calling** for guaranteed consistency:
+
+```bash
+pip install zeroclaw-tools
+```
+
+```python
+from zeroclaw_tools import create_agent, shell, file_read
+from langchain_core.messages import HumanMessage
+
+# Works with any OpenAI-compatible provider
+agent = create_agent(
+    tools=[shell, file_read],
+    model="glm-5",
+    api_key="your-key",
+    base_url="https://api.z.ai/api/coding/paas/v4"
+)
+
+result = await agent.ainvoke({
+    "messages": [HumanMessage(content="List files in /tmp")]
+})
+print(result["messages"][-1].content)
+```
+
+**Why use it:**
+- **Consistent tool calling** across all providers (even those with poor native support)
+- **Automatic tool loop** — keeps calling tools until the task is complete
+- **Easy extensibility** — add custom tools with `@tool` decorator
+- **Discord bot integration** included (Telegram planned)
+
+See [`python/README.md`](python/README.md) for full documentation.
 
 ## Identity System (AIEOS Support)
 
@@ -474,6 +601,18 @@ A git hook runs `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo t
 git config core.hooksPath .githooks
 ```
 
+### Build troubleshooting (Linux OpenSSL errors)
+
+If you see an `openssl-sys` build error, sync dependencies and rebuild with the repository lockfile:
+
+```bash
+git pull
+cargo build --release --locked
+cargo install --path . --force --locked
+```
+
+ZeroClaw is configured to use `rustls` for HTTP/TLS dependencies; `--locked` keeps the transitive graph deterministic on fresh environments.
+
 To skip the hook when you need a quick push during development:
 
 ```bash
@@ -496,9 +635,20 @@ ZeroClaw is an open-source project maintained with passion. If you find it usefu
 
 <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
 
+### 🙏 Special Thanks
+
+A heartfelt thank you to the communities and institutions that inspire and fuel this open-source work:
+
+- **Harvard University** — for fostering intellectual curiosity and pushing the boundaries of what's possible.
+- **MIT** — for championing open knowledge, open source, and the belief that technology should be accessible to everyone.
+- **Sundai Club** — for the community, the energy, and the relentless drive to build things that matter.
+- **The World & Beyond** 🌍✨ — to every contributor, dreamer, and builder out there making open source a force for good. This is for you.
+
+We're building in the open because the best ideas come from everywhere. If you're reading this, you're part of it. Welcome. 🦀❤️
+
 ## License
 
-MIT — see [LICENSE](LICENSE)
+Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE) for contributor attribution
 
 ## Contributing
 
@@ -511,6 +661,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Implement a trait, submit a PR:
 - New `Memory` → `src/memory/`
 - New `Tunnel` → `src/tunnel/`
 - New `Skill` → `~/.zeroclaw/workspace/skills/<name>/`
+
 
 ---
 

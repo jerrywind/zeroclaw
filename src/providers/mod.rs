@@ -9,7 +9,10 @@ pub mod router;
 pub mod traits;
 
 #[allow(unused_imports)]
-pub use traits::{ChatMessage, ChatResponse, Provider, ToolCall};
+pub use traits::{
+    ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider, ToolCall,
+    ToolResultMessage,
+};
 
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
@@ -123,7 +126,11 @@ fn resolve_api_key(name: &str, api_key: Option<&str>) -> Option<String> {
         "glm" | "zhipu" => vec!["GLM_API_KEY"],
         "minimax" => vec!["MINIMAX_API_KEY"],
         "qianfan" | "baidu" => vec!["QIANFAN_API_KEY"],
+        "qwen" | "dashscope" | "qwen-intl" | "dashscope-intl" | "qwen-us" | "dashscope-us" => {
+            vec!["DASHSCOPE_API_KEY"]
+        }
         "zai" | "z.ai" => vec!["ZAI_API_KEY"],
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec!["NVIDIA_API_KEY"],
         "synthetic" => vec!["SYNTHETIC_API_KEY"],
         "opencode" | "opencode-zen" => vec!["OPENCODE_API_KEY"],
         "vercel" | "vercel-ai" => vec!["VERCEL_API_KEY"],
@@ -202,7 +209,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "cloudflare" | "cloudflare-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cloudflare AI Gateway",
             "https://gateway.ai.cloudflare.com/v1",
-            api_key,
+            key,
             AuthStyle::Bearer,
         ))),
         "moonshot" | "kimi" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -212,13 +219,13 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             "Synthetic", "https://api.synthetic.com", key, AuthStyle::Bearer,
         ))),
         "opencode" | "opencode-zen" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "OpenCode Zen", "https://api.opencode.ai", key, AuthStyle::Bearer,
+            "OpenCode Zen", "https://opencode.ai/zen/v1", key, AuthStyle::Bearer,
         ))),
         "zai" | "z.ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Z.AI", "https://api.z.ai/api/coding/paas/v4", key, AuthStyle::Bearer,
         ))),
-        "glm" | "zhipu" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "GLM", "https://open.bigmodel.cn/api/paas/v4", key, AuthStyle::Bearer,
+        "glm" | "zhipu" => Ok(Box::new(OpenAiCompatibleProvider::new_no_responses_fallback(
+            "GLM", "https://api.z.ai/api/paas/v4", key, AuthStyle::Bearer,
         ))),
         "minimax" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "MiniMax",
@@ -229,11 +236,20 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "bedrock" | "aws-bedrock" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Amazon Bedrock",
             "https://bedrock-runtime.us-east-1.amazonaws.com",
-            api_key,
+            key,
             AuthStyle::Bearer,
         ))),
         "qianfan" | "baidu" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Qianfan", "https://aip.baidubce.com", key, AuthStyle::Bearer,
+        ))),
+        "qwen" | "dashscope" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
+        ))),
+        "qwen-intl" | "dashscope-intl" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
+        ))),
+        "qwen-us" | "dashscope-us" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Qwen", "https://dashscope-us.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
         ))),
 
         // ── Extended ecosystem (community favorites) ─────────
@@ -263,6 +279,9 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         ))),
         "copilot" | "github-copilot" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "GitHub Copilot", "https://api.githubcopilot.com", key, AuthStyle::Bearer,
+        ))),
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", key, AuthStyle::Bearer,
         ))),
 
         // ── Bring Your Own Provider (custom URL) ───────────
@@ -421,6 +440,12 @@ pub fn create_routed_provider(
 mod tests {
     use super::*;
 
+    #[test]
+    fn resolve_api_key_prefers_explicit_argument() {
+        let resolved = resolve_api_key("openrouter", Some("  explicit-key  "));
+        assert_eq!(resolved.as_deref(), Some("explicit-key"));
+    }
+
     // ── Primary providers ────────────────────────────────────
 
     #[test]
@@ -521,6 +546,16 @@ mod tests {
         assert!(create_provider("baidu", Some("key")).is_ok());
     }
 
+    #[test]
+    fn factory_qwen() {
+        assert!(create_provider("qwen", Some("key")).is_ok());
+        assert!(create_provider("dashscope", Some("key")).is_ok());
+        assert!(create_provider("qwen-intl", Some("key")).is_ok());
+        assert!(create_provider("dashscope-intl", Some("key")).is_ok());
+        assert!(create_provider("qwen-us", Some("key")).is_ok());
+        assert!(create_provider("dashscope-us", Some("key")).is_ok());
+    }
+
     // ── Extended ecosystem ───────────────────────────────────
 
     #[test]
@@ -570,6 +605,13 @@ mod tests {
     fn factory_copilot() {
         assert!(create_provider("copilot", Some("key")).is_ok());
         assert!(create_provider("github-copilot", Some("key")).is_ok());
+    }
+
+    #[test]
+    fn factory_nvidia() {
+        assert!(create_provider("nvidia", Some("nvapi-test")).is_ok());
+        assert!(create_provider("nvidia-nim", Some("nvapi-test")).is_ok());
+        assert!(create_provider("build.nvidia.com", Some("nvapi-test")).is_ok());
     }
 
     // ── Custom / BYOP provider ─────────────────────────────
@@ -749,6 +791,9 @@ mod tests {
             "minimax",
             "bedrock",
             "qianfan",
+            "qwen",
+            "qwen-intl",
+            "qwen-us",
             "groq",
             "mistral",
             "xai",
@@ -758,6 +803,7 @@ mod tests {
             "perplexity",
             "cohere",
             "copilot",
+            "nvidia",
         ];
         for name in providers {
             assert!(
