@@ -1,11 +1,7 @@
 ZeroClaw
-Copyright 2025-2026 Argenis Delarosa
+Copyright 2025 ZeroClaw Labs
 
-This product includes software developed by ZeroClaw Labs and its contributors.
-
-Author
-======
-theonlyhennygod (Argenis Delarosa)
+This product includes software developed at ZeroClaw Labs (https://github.com/zeroclaw-labs).
 
 Contributors
 ============
@@ -15,31 +11,44 @@ The following individuals have contributed to ZeroClaw:
 - Abdzsam
 - adie
 - agorevski
+- beee003
 - cd-slash
+- chenmi319
 - chumyin
+- darwin808
+- Death-Incarnate
+- dwillitzer
 - ecschoye
 - elonfeng
 - Extreammouse
 - fettpl
+- FISHers6
 - haeli05
+- ibhagwan
 - jereanon
 - junbaor
 - kumanday
 - lawyered0
+- LiWeny16
 - mai1015
 - Mgrsc
 - Moeblack
+- nkhoit
 - radkrish
 - reidliu41
+- RinZ27
 - sahajre
 - stakeswky
 - theonlyhennygod
+- v0l
 - vernonstinebaker
 - vrescobar
 - willsarg
+- YubinghanBai
+
 
 Third-Party Dependencies
-========================
+=========================
 
 This project uses the following third-party libraries and components,
 each licensed under their respective terms:
